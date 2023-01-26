@@ -8,6 +8,7 @@ import javax.persistence.Temporal;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import fenoreste.inspei.consumo.ConsumoCsnTDD;
 import fenoreste.inspei.entity.AbonoSpei;
 import fenoreste.inspei.entity.Auxiliar;
 import fenoreste.inspei.entity.AuxiliarPK;
@@ -54,6 +55,9 @@ public class InServiceGeneral {
 	
 	@Autowired
 	private ISpeiTemporalService speiTemporalService;
+	
+	@Autowired
+	private ConsumoCsnTDD consumoCsnTDD;
 	
 	String idtabla="spei_entrada";
 	
@@ -113,6 +117,11 @@ public class InServiceGeneral {
 							                            	//Buscamos tabla para producto comision
 							                                tb_pk_comision = new TablaPK(idtabla,"producto_comision");
 							                                Tabla tb_producto_comision = tablasService.buscarPorId(tb_pk_comision);
+							                                
+							                                //Buscamos tabla para producto comision
+							                                tb_pk_comision = new TablaPK(idtabla,"producto_iva_comision");
+							                                Tabla tb_producto_iva_comision = tablasService.buscarPorId(tb_pk_comision);
+							                                
 							                                //Buscamos tabla para idcuenta
 							                                TablaPK tb_pk_cuenta = new TablaPK(idtabla,"cuenta_contable");
 							                                Tabla tb_cuenta_contable = tablasService.buscarPorId(tb_pk_cuenta);
@@ -125,55 +134,95 @@ public class InServiceGeneral {
 							                            	temporal.setIdproducto(folio_tdd_auxiliar.getAuxiliarPK().getIdproducto());
 							                            	temporal.setIdauxiliar(folio_tdd_auxiliar.getAuxiliarPK().getIdauxiliar());
 							                            	temporal.setEsentrada(true);
-							                            	temporal.setAcapital(in.getMonto() - Double.parseDouble(tb_comision.getDato1()));
-							                            	temporal.setTipomov(1);
+							                            	temporal.setAcapital(in.getMonto());
 							                                temporal.setReferencia(String.valueOf(in.getReferenciaNumerica()));
 							                                temporal.setIdusuario(Integer.parseInt(tb_usuario.getDato1()));
 							                                temporal.setSesion(funcionesSaiService.session());
-							                                temporal.setDiasvencidos(0);
-							                                temporal.setMontovencido(0.0);
-							                                temporal.setIo_cal(0.0);
-							                                temporal.setIvaio_cal(0.0);
-							                                
+							                                String sai = funcionesSaiService.sai_auxiliar(new AuxiliarPK(temporal.getIdorigenp(), temporal.getIdproducto(), temporal.getIdauxiliar()));
+							                                temporal.setSai_aux(sai);							                                
 							                                speiTemporalService.guardar(temporal);
 							                                
-							                                //Vamos a registrar movimiento al producto comision(Abono)
-							                                temporal = new SpeiTemporal();
-							                                temporal.setIdorigen(folio_tdd_auxiliar.getIdorigen());
-							                            	temporal.setIdgrupo(folio_tdd_auxiliar.getIdgrupo());
-							                            	temporal.setIdsocio(folio_tdd_auxiliar.getIdsocio());
-							                            	temporal.setIdorigenp(0);
-							                            	temporal.setIdproducto(Integer.parseInt(tb_producto_comision.getDato1()));
-							                            	temporal.setIdauxiliar(0);
-							                            	temporal.setEsentrada(true);
-							                            	temporal.setAcapital(Double.parseDouble(tb_comision.getDato1()));
-							                            	temporal.setTipomov(1);
-							                                temporal.setReferencia(String.valueOf(in.getReferenciaNumerica()));
-							                                temporal.setIdusuario(Integer.parseInt(tb_usuario.getDato1()));
-							                                temporal.setSesion(funcionesSaiService.session());
-							                                temporal.setDiasvencidos(0);
-							                                temporal.setMontovencido(0.0);
-							                                temporal.setIo_cal(0.0);
-							                                temporal.setIvaio_cal(0.0);
-							                                
-							                                speiTemporalService.guardar(temporal);
+							                              
 							                                
 							                                //Vamos a registrar el movimiento a cuentaContable(Cargo)
 							                                temporal = new SpeiTemporal();
 							                                temporal.setIdcuenta(tb_cuenta_contable.getDato1());
-							                            	temporal.setIdauxiliar(0);
+							                                temporal.setIdorigen(folio_tdd_auxiliar.getIdorigen());
+							                            	temporal.setIdgrupo(folio_tdd_auxiliar.getIdgrupo());
+							                            	temporal.setIdsocio(folio_tdd_auxiliar.getIdsocio());
 							                            	temporal.setEsentrada(false);
 							                            	temporal.setAcapital(in.getMonto());
-							                            	temporal.setTipomov(0);
 							                                temporal.setReferencia(String.valueOf(in.getReferenciaNumerica()));
 							                                temporal.setIdusuario(Integer.parseInt(tb_usuario.getDato1()));
-							                                temporal.setSesion(funcionesSaiService.session());
-							                                temporal.setDiasvencidos(0);
-							                                temporal.setMontovencido(0.0);
-							                                temporal.setIo_cal(0.0);
-							                                temporal.setIvaio_cal(0.0);
-							                                
+							                                temporal.setSesion(funcionesSaiService.session());							                                
 							                                speiTemporalService.guardar(temporal);
+							                                
+							                                //Se han preparado los movimientos es hora de enviar a la tdd
+							                                //Buscamos la tabla donde esta la url
+							                                TablaPK pk_url_tdd = new TablaPK(idtabla,"url_tdd");
+							                                Tabla tb_url_tdd = tablasService.buscarPorId(pk_url_tdd);
+							                                boolean bandera =  true;//consumoCsnTDD.depositarSaldo(tb_url_tdd.getDato2(),tarjeta.getIdtarjeta(),in.getMonto());
+							                                if(bandera) {
+							                                	//vamos a general poliza(cargo cuenta spei y abono tdd)
+							                                	Integer movs_aplicados = 0;//funcionesSaiService.aplica_movs(Integer.parseInt(tb_usuario.getDato1()), temporal.getSesion());
+							                                	if(movs_aplicados > 10) {
+							                                		//Eliminamos temporales para no tener problemas
+							                                		//speiTemporalService.eliminar(temporal.getSesion());
+							                                		
+							                                		//vamos a descontar la comision
+								                                	//Vamos a registrar movimiento a tdd(Cargo)
+							                                		temporal = new SpeiTemporal();
+									                            	temporal.setIdorigen(folio_tdd_auxiliar.getIdorigen());
+									                            	temporal.setIdgrupo(folio_tdd_auxiliar.getIdgrupo());
+									                            	temporal.setIdsocio(folio_tdd_auxiliar.getIdsocio());
+									                            	temporal.setIdorigenp(folio_tdd_auxiliar.getAuxiliarPK().getIdorigenp());
+									                            	temporal.setIdproducto(folio_tdd_auxiliar.getAuxiliarPK().getIdproducto());
+									                            	temporal.setIdauxiliar(folio_tdd_auxiliar.getAuxiliarPK().getIdauxiliar());
+									                            	temporal.setEsentrada(false);
+									                            	temporal.setAcapital(Double.parseDouble(tb_comision.getDato1()) + (Double.parseDouble(tb_comision.getDato1()) * 0.16));
+									                            	temporal.setReferencia(String.valueOf(in.getReferenciaNumerica()));
+									                                temporal.setIdusuario(Integer.parseInt(tb_usuario.getDato1()));
+									                                temporal.setSesion(funcionesSaiService.session()+1);
+									                                String sai_c = funcionesSaiService.sai_auxiliar(new AuxiliarPK(temporal.getIdorigenp(), temporal.getIdproducto(), temporal.getIdauxiliar()));
+									                                System.out.println(sai_c);
+									                                temporal.setSai_aux(sai_c);
+									                                speiTemporalService.guardar(temporal);
+									                                
+								                                	//Vamos a registrar movimiento al producto comision(Abono)
+									                                temporal = new SpeiTemporal();
+									                                temporal.setIdorigen(folio_tdd_auxiliar.getIdorigen());
+									                            	temporal.setIdgrupo(folio_tdd_auxiliar.getIdgrupo());
+									                            	temporal.setIdsocio(folio_tdd_auxiliar.getIdsocio());
+									                            	temporal.setIdproducto(Integer.parseInt(tb_producto_comision.getDato1()));							                            	
+									                            	temporal.setEsentrada(true);
+									                            	temporal.setAcapital(Double.parseDouble(tb_comision.getDato1()));									                            	
+									                                temporal.setReferencia(String.valueOf(in.getReferenciaNumerica()));
+									                                temporal.setIdusuario(Integer.parseInt(tb_usuario.getDato1()));
+									                                temporal.setSesion(funcionesSaiService.session() + 1);								                                
+									                                speiTemporalService.guardar(temporal);
+									                                
+									                               //Vamos a registrar movimiento al producto iva comision(Abono)
+									                                temporal = new SpeiTemporal();
+									                                temporal.setIdorigen(folio_tdd_auxiliar.getIdorigen());
+									                            	temporal.setIdgrupo(folio_tdd_auxiliar.getIdgrupo());
+									                            	temporal.setIdsocio(folio_tdd_auxiliar.getIdsocio());
+									                            	temporal.setIdproducto(Integer.parseInt(tb_producto_iva_comision.getDato1()));							                            	
+									                            	temporal.setEsentrada(true);
+									                            	temporal.setAcapital(Double.parseDouble(tb_comision.getDato1()) * 0.16);
+									                                temporal.setReferencia(String.valueOf(in.getReferenciaNumerica()));
+									                                temporal.setIdusuario(Integer.parseInt(tb_usuario.getDato1()));
+									                                temporal.setSesion(funcionesSaiService.session()+1);	
+									                                speiTemporalService.guardar(temporal);
+									                                movs_aplicados = funcionesSaiService.aplica_movs(Integer.parseInt(tb_usuario.getDato1()), temporal.getSesion());
+								                                	
+									                                
+									                               //speiTemporalService.eliminar(temporal.getSesion());
+									                           
+							                                	}else {
+							                                	    bandera = consumoCsnTDD.retirarSaldo(tb_url_tdd.getDato2(),tarjeta.getIdtarjeta(),in.getMonto());	
+							                                	}
+							                                }
+							                                
 							                                
 							                            }else {
 							                            	resp.setMensaje("Monto traspasa el permitido diario");
@@ -207,9 +256,11 @@ public class InServiceGeneral {
 	    }else {
 	    	resp.setMensaje("Operacion fuera de horario");
 	    }
-	    
-	    
+	    System.exit(0);
 		return resp; 
+		
 	}
+	
+	
  
 }
